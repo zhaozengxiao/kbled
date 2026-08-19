@@ -19,6 +19,7 @@
 - 开 / 关
 - 颜色（RGB，单区整键盘）
 - 亮度 0–255
+- 快捷键控制（亮度加减 / 开关 / 颜色循环，见下文）
 - 开机自启 + 唤醒后自动恢复上次设置（systemd）
 
 ## 安装
@@ -46,11 +47,48 @@ sudo kbled color FF0000      # 红色
 sudo kbled color FFFFFF      # 白色
 sudo kbled brightness 150    # 亮度 0-255
 sudo kbled brightness 0      # 亮度 0 相当于关
+sudo kbled up                # 亮度加一档 (+25)
+sudo kbled down              # 亮度减一档 (-25)
+sudo kbled toggle            # 开/关切换
+sudo kbled cycle             # 循环切换预设颜色（白→青→红→绿→蓝→黄→洋红→水蓝）
 sudo kbled status            # 查看当前配置与 EC 状态
 sudo kbled apply             # 应用配置文件（服务在开机/唤醒时调用）
 ```
 
 改完颜色/亮度自动保存，开机会自动恢复。
+
+## 快捷键控制
+
+**重要发现**：本机（HASEE 固件）的 Fn 背光热键是**固件死键**——实测按键时
+EC 查询、WMI 事件（`EVNT`/`HKDR`）、GPE 中断、键盘输入事件**全部无信号**，
+软件无法监听，因此也不存在可驱动的路径（Windows 下同样无效）。
+
+替代方案：将**可捕获**的按键组合绑定到 kbled（GNOME 桌面）：
+
+```bash
+# Super(徽标键) + 小键盘
+#   小键盘 +  → 亮度加      小键盘 -  → 亮度减
+#   小键盘 *  → 开/关       小键盘 /  → 颜色循环
+gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings \
+  "['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kbled-up/',
+    '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kbled-down/',
+    '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kbled-toggle/',
+    '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kbled-cycle/']"
+
+for kv in "kbled-up:亮度加:<Super>KP_Add:up" \
+          "kbled-down:亮度减:<Super>KP_Subtract:down" \
+          "kbled-toggle:背光开关:<Super>KP_Multiply:toggle" \
+          "kbled-cycle:颜色循环:<Super>KP_Divide:cycle"; do
+  n=${kv%%:*}; rest=${kv#*:}; lb=${rest%%:*}; rest=${rest#*:}; b=${rest%%:*}; c=${rest##*:}
+  base="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/$n"
+  gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$base/ name "$lb"
+  gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$base/ command "sudo /usr/local/sbin/kbled $c"
+  gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$base/ binding "$b"
+done
+```
+
+其他桌面环境（KDE/XFCE 等）只需把上面 4 条命令绑定到同样的组合键即可。
+前提是已安装本工具并配置过免密 sudo（`install.sh` 会自动完成）。
 
 ## EC 协议（逆向记录）
 
@@ -94,6 +132,11 @@ sudo kbled apply             # 应用配置文件（服务在开机/唤醒时调
 **Q: 需要 root 吗？**
 是的（EC 访问需要权限）。`install.sh` 已为本机用户配置免密 sudo。
 其他用户可自行执行 `sudo kbled ...`。
+
+**Q: Fn 背光快捷键怎么没反应？能启用吗？**
+不能。这是这台机器（HASEE 固件版本）的固件限制：按键时固件不产生任何
+EC 查询 / WMI 事件 / 键盘输入信号，软件根本接收不到按键。建议改用上面的
+「快捷键控制」方案（Super+小键盘 组合）。
 
 ## 免责声明
 

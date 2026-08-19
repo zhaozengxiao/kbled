@@ -10,8 +10,15 @@
  *   kbled off              关闭背光
  *   kbled color RRGGBB     设置颜色（十六进制，如 FF0000 为红）
  *   kbled brightness N     设置亮度 0-255
+ *   kbled up               亮度加一档 (+25)
+ *   kbled down             亮度减一档 (-25)
+ *   kbled toggle           背光开/关切换
+ *   kbled cycle            循环切换预设颜色
  *   kbled apply            应用配置文件（供开机自启服务调用）
  *   kbled status           显示当前配置与 EC 状态
+ *
+ * up/down/toggle/cycle 供桌面快捷键绑定使用（本机 Fn 热键为固件死键，
+ * 无事件信号，用可捕获的按键组合 + 本命令实现等效控制）。
  *
  * 配置文件: /etc/kbled.conf
  * 需要 root 权限（建议通过 sudoers NOPASSWD 规则调用）。
@@ -213,8 +220,64 @@ static void usage(const char *prog) {
         "  off                关闭背光\n"
         "  color RRGGBB       设置颜色（如 FF0000=红, 00FF00=绿, 0000FF=蓝）\n"
         "  brightness N       设置亮度 0-255\n"
+        "  up                 亮度加一档 (+25)\n"
+        "  down               亮度减一档 (-25)\n"
+        "  toggle             背光开/关切换\n"
+        "  cycle              循环切换预设颜色\n"
         "  apply              应用配置文件（开机自启服务调用）\n"
         "  status             显示当前配置与 EC 状态\n", prog);
+}
+
+/* 循环预设色板 */
+static const unsigned int palette[] = {
+    0xFFFFFF, 0x00C8FF, 0xFF0000, 0x00FF00,
+    0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF,
+};
+#define PALETTE_N (sizeof(palette) / sizeof(palette[0]))
+
+static void do_cycle(void) {
+    unsigned int cur = ((unsigned int)cfg_color[0] << 16)
+                     | ((unsigned int)cfg_color[1] << 8)
+                     | (unsigned int)cfg_color[2];
+    size_t idx = 0;
+    for (size_t i = 0; i < PALETTE_N; i++)
+        if (palette[i] == cur) { idx = (i + 1) % PALETTE_N; break; }
+    cfg_color[0] = (palette[idx] >> 16) & 0xFF;
+    cfg_color[1] = (palette[idx] >> 8) & 0xFF;
+    cfg_color[2] = palette[idx] & 0xFF;
+    cfg_save();
+    if (cfg_enabled) apply_settings();
+    printf("颜色已循环至 #%02X%02X%02X\n", cfg_color[0], cfg_color[1], cfg_color[2]);
+}
+
+#define BRIGHT_STEP 25
+static void do_bright_up(void) {
+    if (cfg_bright + BRIGHT_STEP > 255) cfg_bright = 255;
+    else cfg_bright += BRIGHT_STEP;
+    cfg_save();
+    if (cfg_enabled) apply_settings();
+    printf("亮度 %d/255\n", cfg_bright);
+}
+static void do_bright_down(void) {
+    if (cfg_bright - BRIGHT_STEP < 0) cfg_bright = 0;
+    else cfg_bright -= BRIGHT_STEP;
+    cfg_save();
+    if (cfg_enabled) apply_settings();
+    printf("亮度 %d/255\n", cfg_bright);
+}
+static void do_toggle(void) {
+    if (cfg_enabled) {
+        cfg_enabled = 0;
+        cfg_save();
+        kbd_master_disable();
+        printf("键盘背光已关闭\n");
+    } else {
+        cfg_enabled = 1;
+        cfg_save();
+        apply_settings();
+        printf("键盘背光已开启 (#%02X%02X%02X, 亮度 %d)\n",
+               cfg_color[0], cfg_color[1], cfg_color[2], cfg_bright);
+    }
 }
 
 int main(int argc, char **argv) {
@@ -274,6 +337,10 @@ int main(int argc, char **argv) {
                cfg_color[0], cfg_color[1], cfg_color[2], cfg_bright);
         return 0;
     }
+    if (strcmp(cmd, "up") == 0)   { do_bright_up();   return 0; }
+    if (strcmp(cmd, "down") == 0) { do_bright_down(); return 0; }
+    if (strcmp(cmd, "toggle") == 0){ do_toggle();      return 0; }
+    if (strcmp(cmd, "cycle") == 0) { do_cycle();       return 0; }
 
     usage(argv[0]);
     return 2;
