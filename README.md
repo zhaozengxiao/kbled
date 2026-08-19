@@ -139,7 +139,11 @@ gnome-system-monitor 等所有工具都能直接读到。
 | fan3_input | RPM3 | 0xE0 (16bit) | 风扇3（NH5x 无，恒 0） |
 | temp1_input | TMP | 0x07 | EC 温度 |
 
-DSDT 中还有占空比字段：DUT1=0xCE、DUT2=0xCF（百分比）。
+DSDT 中还有占空比字段：DUT1=0xCE、DUT2=0xCF（PWM 原始值 0–255，≈值/255×100%）。
+
+⚠️ 0xD0/0xD2 存的是**转速计计数（tach count）而非 RPM**，EC 转速越高计数越小。
+模块按 Clevo 固件公式换算 `RPM = 2156220 / count`，实测：空闲 count≈966→2232 RPM，
+满负载 count≈489→4409 RPM（已用固件自带 PK0C 方法交叉验证原始计数一致）。
 
 安装（dkms，随内核升级自动重建）：
 

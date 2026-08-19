@@ -13,10 +13,10 @@
  *   TMP   0x07   EC temperature (deg C)
  *   DUT1  0xCE   fan1 duty (percent)
  *   DUT2  0xCF   fan2 duty (percent)
- *   RPM1  0xD0   fan1 speed (16-bit, big-endian on the wire)
- *   RPM2  0xD2   fan2 speed (16-bit, big-endian)
- *   RPM4  0xD4   fan4 speed (16-bit) - unused on this chassis
- *   RPM3  0xE0   fan3 speed (16-bit) - unused on this chassis
+ *   RPM1  0xD0   fan1 tach count (16-bit, big-endian on the wire)
+ *   RPM2  0xD2   fan2 tach count (16-bit, big-endian)
+ *   RPM4  0xD4   fan4 tach count (16-bit) - unused on this chassis
+ *   RPM3  0xE0   fan3 tach count (16-bit) - unused on this chassis
  *
  * This driver registers hwmon sensors fan1_input, fan2_input, fan3_input
  * and temp1_input so GNOME Vitals, lm-sensors and other tools can see
@@ -41,6 +41,15 @@
 #define REG_RPM2 0xD2
 #define REG_RPM3 0xE0
 
+/*
+ * EC fan fields are tachometer COUNTS, not RPM. Clevo firmware converts:
+ *   RPM = ECFAN_TACH_DIV / count
+ * Verified on this chassis: idle (count 966) -> 2232 RPM,
+ * full load (count 489) -> 4409 RPM, which is physically sane
+ * (the raw count falls as the fan spins faster).
+ */
+#define ECFAN_TACH_DIV 2156220UL
+
 static void __iomem *ecfan_mem;
 static struct device *ecfan_hwmon_dev;
 static struct platform_device *ecfan_pdev;
@@ -62,6 +71,16 @@ static u16 ecfan_rd16(u8 off)
 	return (u16)(((u16)ecfan_rd8(off) << 8) | ecfan_rd8(off + 1));
 }
 
+/* EC stores a tachometer count; convert to RPM via ECFAN_TACH_DIV / count */
+static u32 ecfan_rpm(u8 off)
+{
+	u16 count = ecfan_rd16(off);
+
+	if (count == 0)
+		return 0;	/* stalled / no fan */
+	return (u32)(ECFAN_TACH_DIV / (u32)count);
+}
+
 static int ecfan_read(struct device *dev, enum hwmon_sensor_types type,
 		      u32 attr, int channel, long *val)
 {
@@ -71,13 +90,13 @@ static int ecfan_read(struct device *dev, enum hwmon_sensor_types type,
 			return -EOPNOTSUPP;
 		switch (channel) {
 		case 0:
-			*val = ecfan_rd16(REG_RPM1);
+			*val = ecfan_rpm(REG_RPM1);
 			break;
 		case 1:
-			*val = ecfan_rd16(REG_RPM2);
+			*val = ecfan_rpm(REG_RPM2);
 			break;
 		case 2:
-			*val = ecfan_rd16(REG_RPM3);
+			*val = ecfan_rpm(REG_RPM3);
 			break;
 		default:
 			return -EOPNOTSUPP;
