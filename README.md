@@ -51,6 +51,7 @@ sudo kbled up                # 亮度加一档 (+25)
 sudo kbled down              # 亮度减一档 (-25)
 sudo kbled toggle            # 开/关切换
 sudo kbled cycle             # 循环切换预设颜色（白→青→红→绿→蓝→黄→洋红→水蓝）
+sudo kbled breathe 3 60 255  # 呼吸特效：亮度正弦脉动（周期 3s，60-255；Ctrl+C 停止）
 sudo kbled status            # 查看当前配置与 EC 状态
 sudo kbled apply             # 应用配置文件（服务在开机/唤醒时调用）
 ```

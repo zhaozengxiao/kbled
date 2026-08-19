@@ -14,6 +14,9 @@
  *   kbled down             亮度减一档 (-25)
  *   kbled toggle           背光开/关切换
  *   kbled cycle            循环切换预设颜色
+ *   kbled breathe [周期] [最低] [最高]
+ *                          呼吸特效：亮度正弦脉动（周期秒，默认 3，范围 30-255），
+ *                          Ctrl+C / kill 停止后恢复原亮度
  *   kbled apply            应用配置文件（供开机自启服务调用）
  *   kbled status           显示当前配置与 EC 状态
  *
@@ -31,6 +34,9 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <ctype.h>
+#include <signal.h>
+#include <time.h>
+#include <math.h>
 #include <sys/io.h>
 
 #define CONFIG_PATH "/etc/kbled.conf"
@@ -145,6 +151,12 @@ static void kbd_set_brightness(int v) {
     ec_write_byte(0xF9, 0x06);
     ec_write_byte(0xFA, (unsigned char)v);
     ec_write_byte(0xF8, 0xCA);
+    /* 等待 EC 消费门铃（FCMD 清零），避免命令重叠导致闪烁 */
+    unsigned char fcmd = 0xFF;
+    for (int i = 0; i < 200 && fcmd != 0; i++) {
+        if (ec_read_byte(0xF8, &fcmd) != 0) break;
+        if (fcmd != 0) usleep(50);
+    }
 }
 
 /* ---------------- 配置读写 ---------------- */
@@ -171,6 +183,47 @@ static void cfg_load(void) {
                    (unsigned int *)&cfg_color[2]) == 3) continue;
     }
     fclose(f);
+}
+
+/* ---------------- 呼吸特效 ---------------- */
+
+#define BREATH_STEP_US 12000   /* 每帧 12ms ≈ 83fps，更平滑 */
+
+static volatile sig_atomic_t breathe_stop = 0;
+
+static void breathe_sig(int sig) { (void)sig; breathe_stop = 1; }
+
+static void apply_settings(void);   /* 前向声明 */
+
+static void do_breathe(double period, int bmin, int bmax) {
+    signal(SIGINT, breathe_sig);
+    signal(SIGTERM, breathe_sig);
+    if (bmax < bmin) { int t = bmax; bmax = bmin; bmin = t; }
+    if (bmin < 0) bmin = 0;
+    if (bmax > 255) bmax = 255;
+    if (period < 0.3) period = 0.3;
+
+    printf("呼吸特效开始 (周期 %.1fs, 亮度 %d-%d)。Ctrl+C 停止。\n",
+           period, bmin, bmax);
+    fflush(stdout);
+
+    if (cfg_enabled) kbd_master_enable();
+    struct timespec ts = {0, BREATH_STEP_US * 1000L};
+    double t = 0.0;
+    while (!breathe_stop) {
+        double phase = (sin(2.0 * M_PI * t / period) + 1.0) / 2.0;
+        /* 正弦平方（幂律）曲线：暗段过渡更柔和，避免低亮度 PWM 闪烁感 */
+        int v = bmin + (int)((bmax - bmin) * phase * phase);
+        if (v < 0) v = 0;
+        if (v > 255) v = 255;
+        kbd_set_brightness(v);
+        nanosleep(&ts, NULL);
+        t += BREATH_STEP_US / 1e6;
+    }
+    /* 退出时恢复配置亮度 */
+    if (cfg_enabled) apply_settings();
+    printf("呼吸特效已停止，恢复亮度 %d\n", cfg_bright);
+    fflush(stdout);
 }
 
 /* ---------------- 动作 ---------------- */
@@ -224,6 +277,8 @@ static void usage(const char *prog) {
         "  down               亮度减一档 (-25)\n"
         "  toggle             背光开/关切换\n"
         "  cycle              循环切换预设颜色\n"
+        "  breathe [周期] [最低] [最高]\n"
+        "                      呼吸特效：亮度正弦脉动（周期秒，默认 3；范围默认 30-255）\n"
         "  apply              应用配置文件（开机自启服务调用）\n"
         "  status             显示当前配置与 EC 状态\n", prog);
 }
@@ -341,6 +396,14 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "down") == 0) { do_bright_down(); return 0; }
     if (strcmp(cmd, "toggle") == 0){ do_toggle();      return 0; }
     if (strcmp(cmd, "cycle") == 0) { do_cycle();       return 0; }
+    if (strcmp(cmd, "breathe") == 0) {
+        double period = 3.0; int bmin = 60, bmax = 255;
+        if (argc >= 3) period = atof(argv[2]);
+        if (argc >= 4) bmin = atoi(argv[3]);
+        if (argc >= 5) bmax = atoi(argv[4]);
+        do_breathe(period, bmin, bmax);
+        return 0;
+    }
 
     usage(argv[0]);
     return 2;
