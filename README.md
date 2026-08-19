@@ -121,6 +121,41 @@ done
   [PROTOCOL.md](https://github.com/smairio/gigactl/blob/main/docs/PROTOCOL.md)
   （Gigabyte G5/G6，同为 Clevo-ODM + Insyde EC），已在本文档所述的机器上逐项复测验证。
 
+## 风扇传感器（ecfan 内核模块）
+
+GNOME Vitals 等监控工具读不到风扇转速，是因为本机没有标准 hwmon 风扇芯片
+（风扇由 EC 固件直接控制，不暴露给系统）。`ecfan` 内核模块解决了这个问题：
+它把 EC 内存里的风扇/温度字段注册为标准 hwmon 传感器，Vitals、`sensors`、
+gnome-system-monitor 等所有工具都能直接读到。
+
+原理：EC 通过系统内存窗口 `0xFE0B0100`（DSDT `OperationRegion RAM, SystemMemory`）
+映射自身 RAM，模块直接读取该窗口（已验证与 `/sys/kernel/debug/ec/ec0/io` 逐字节一致
+且实时更新），不触碰 EC I/O 端口，与内核 EC 驱动无冲突。
+
+| hwmon 传感器 | EC 字段 | 偏移 | 说明 |
+|---|---|---|---|
+| fan1_input | RPM1 | 0xD0 (16bit) | 风扇1 转速 |
+| fan2_input | RPM2 | 0xD2 (16bit) | 风扇2 转速 |
+| fan3_input | RPM3 | 0xE0 (16bit) | 风扇3（NH5x 无，恒 0） |
+| temp1_input | TMP | 0x07 | EC 温度 |
+
+DSDT 中还有占空比字段：DUT1=0xCE、DUT2=0xCF（百分比）。
+
+安装（dkms，随内核升级自动重建）：
+
+```bash
+sudo apt install dkms
+sudo cp -r ecfan /usr/src/ecfan-1.0
+sudo dkms add -m ecfan -v 1.0
+sudo dkms build -m ecfan -v 1.0
+sudo dkms install -m ecfan -v 1.0
+sudo modprobe ecfan
+echo ecfan | sudo tee /etc/modules-load.d/ecfan.conf   # 开机自启
+```
+
+验证：`sensors` 应出现 `ecfan-isa-ecfa` 芯片，或 `ls /sys/class/hwmon/hwmon*/fan*_input`。
+卸载：`sudo dkms remove -m ecfan -v 1.0 --all && sudo rm -rf /usr/src/ecfan-1.0`。
+
 ## 常见问题
 
 **Q: 改了颜色但没反应？**
