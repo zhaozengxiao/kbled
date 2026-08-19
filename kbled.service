@@ -1,0 +1,11 @@
+[Unit]
+Description=Apply Clevo keyboard backlight settings
+After=multi-user.target suspend.target hibernate.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kbled apply
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target suspend.target hibernate.target
