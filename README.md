@@ -137,6 +137,11 @@ gnome-system-monitor 等所有工具都能直接读到。
 | fan1_input | RPM1 | 0xD0 (16bit) | 风扇1 转速 |
 | fan2_input | RPM2 | 0xD2 (16bit) | 风扇2 转速 |
 | temp1_input | TMP | 0x07 | EC 温度 |
+| power1_input | — (RAPL MSR 0x64D) | — | **整机功耗**（Intel RAPL PSYS） |
+
+`power1_input` 不来自 EC，而是模块直接读 Intel RAPL 平台能量计数器
+（MSR 0x64D，已与 `/sys/class/powercap/intel-rapl:1` 对照，误差 <5%）。
+hwmon 功率单位是微瓦 µW，Vitals 显示为 W。
 
 DSDT 中还有占空比字段：DUT1=0xCE、DUT2=0xCF（PWM 原始值 0–255，≈值/255×100%）。
 
@@ -163,6 +168,28 @@ echo ecfan | sudo tee /etc/modules-load.d/ecfan.conf   # 开机自启
 sudo dkms build -m ecfan -v 1.0 && sudo dkms install -m ecfan -v 1.0 &&
 sudo rmmod ecfan && sudo modprobe ecfan`（不要吞掉 build/install 输出，确认无报错）。
 卸载：`sudo dkms remove -m ecfan -v 1.0 --all && sudo rm -rf /usr/src/ecfan-1.0`。
+
+## 在 Vitals 里显示整机功耗
+
+Vitals 本身不支持功耗传感器。本仓库的 `vitals-patch/` 目录提供补丁
+（基于 Vitals v82）：新增"Power"设置页，"系统功耗"显示为 `68.0 W` 样式。
+
+补丁内容：
+- `sensors.js`：扫描 hwmon `power1_input`（值 µW），显示名 "System Power"
+- `values.js`：新增 `watt-system` 格式（无正负号）
+- `prefs.js` / `prefs.ui`：新增 `show-power` 开关与 Power 设置页
+- `gschema.xml`：新增 `show-power` key（默认开）
+
+应用补丁（覆盖到扩展目录后**注销重登**生效；扩展若升级会覆盖补丁，保留此目录以便重打）：
+
+```bash
+V=~/.local/share/gnome-shell/extensions/Vitals@CoreCoding.com
+cp vitals-patch/sensors.js vitals-patch/values.js vitals-patch/prefs.js \
+   vitals-patch/prefs.ui "$V/"
+sudo cp vitals-patch/org.gnome.shell.extensions.vitals.gschema.xml "$V/schemas/"
+sudo glib-compile-schemas "$V/schemas/"
+gnome-extensions disable Vitals@CoreCoding.com && gnome-extensions enable Vitals@CoreCoding.com
+```
 
 ## 常见问题
 

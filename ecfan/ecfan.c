@@ -21,6 +21,9 @@
  * This driver registers hwmon sensors fan1_input, fan2_input and
  * temp1_input so GNOME Vitals, lm-sensors and other tools can see
  * the fans (this chassis has exactly two fans).
+ *
+ * It also exposes power1_input = whole-platform power draw read from
+ * the Intel RAPL PSYS MSR (0x64D), so Vitals can show system power.
  */
 
 #include <linux/module.h>
@@ -28,9 +31,11 @@
 #include <linux/io.h>
 #include <linux/err.h>
 #include <linux/mutex.h>
+#include <linux/jiffies.h>
 #include <linux/platform_device.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
+#include <asm/msr.h>
 
 #define ECFAN_DRV_NAME "ecfan"
 #define ECFAN_BASE     0xFE0B0100UL
@@ -53,6 +58,59 @@ static void __iomem *ecfan_mem;
 static struct device *ecfan_hwmon_dev;
 static struct platform_device *ecfan_pdev;
 static DEFINE_MUTEX(ecfan_lock);
+
+/* RAPL PSYS power state */
+static DEFINE_MUTEX(rapl_lock);
+static u64 rapl_last_energy;
+static unsigned long rapl_last_jiffies;
+static int rapl_esu = 15;	/* energy unit exponent: 1/2^ESU joule */
+static bool rapl_ok;
+
+static void rapl_init(void)
+{
+	u64 unit, e;
+
+	if (rdmsrq_safe(MSR_RAPL_POWER_UNIT, &unit) == 0)
+		rapl_esu = (int)((unit >> 8) & 0x1F);
+	rapl_ok = (rdmsrq_safe(MSR_PLATFORM_ENERGY_STATUS, &e) == 0);
+}
+
+/*
+ * Read whole-platform power in microwatts. Energy counter is 32-bit;
+ * wraps around at 2^32 counts, handled by unsigned subtraction.
+ */
+static int ecfan_power_read(long *val)
+{
+	u64 e;
+	unsigned long now, dt_ms;
+	u32 de;
+
+	if (!rapl_ok)
+		return -ENODEV;
+	if (rdmsrq_safe(MSR_PLATFORM_ENERGY_STATUS, &e))
+		return -ENODEV;
+
+	mutex_lock(&rapl_lock);
+	now = jiffies;
+	if (!rapl_last_jiffies) {
+		rapl_last_energy = e;
+		rapl_last_jiffies = now;
+		*val = 0;
+		mutex_unlock(&rapl_lock);
+		return 0;
+	}
+	dt_ms = (now - rapl_last_jiffies) * 1000UL / HZ;
+	de = (u32)(e - rapl_last_energy);
+	rapl_last_energy = e;
+	rapl_last_jiffies = now;
+	mutex_unlock(&rapl_lock);
+
+	if (dt_ms < 250)
+		dt_ms = 250;	/* minimum sampling window */
+	*val = (long)((u64)de * 1000000000ULL /
+		      (((u64)1 << rapl_esu) * dt_ms));
+	return 0;
+}
 
 static u8 ecfan_rd8(u8 off)
 {
@@ -103,6 +161,10 @@ static int ecfan_read(struct device *dev, enum hwmon_sensor_types type,
 			return -EOPNOTSUPP;
 		*val = ecfan_rd8(REG_TMP) * 1000;	/* millidegree C */
 		return 0;
+	case hwmon_power:
+		if (attr != hwmon_power_input || channel != 0)
+			return -EOPNOTSUPP;
+		return ecfan_power_read(val);
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -121,6 +183,10 @@ static umode_t ecfan_is_visible(const void *drvdata,
 		if (attr == hwmon_temp_input && channel == 0)
 			return 0444;
 		break;
+	case hwmon_power:
+		if (attr == hwmon_power_input && channel == 0 && rapl_ok)
+			return 0444;
+		break;
 	default:
 		break;
 	}
@@ -132,6 +198,7 @@ static const struct hwmon_channel_info *const ecfan_info[] = {
 			   HWMON_F_INPUT,
 			   HWMON_F_INPUT),
 	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT),
+	HWMON_CHANNEL_INFO(power, HWMON_P_INPUT),
 	NULL
 };
 
@@ -159,6 +226,8 @@ static int __init ecfan_init(void)
 		return PTR_ERR(ecfan_pdev);
 	}
 	dev = &ecfan_pdev->dev;
+
+	rapl_init();
 
 	ecfan_mem = ioremap(ECFAN_BASE, ECFAN_SIZE);
 	if (!ecfan_mem) {
