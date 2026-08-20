@@ -18,9 +18,9 @@
  *   RPM4  0xD4   fan4 tach count (16-bit) - unused on this chassis
  *   RPM3  0xE0   fan3 tach count (16-bit) - unused on this chassis
  *
- * This driver registers hwmon sensors fan1_input, fan2_input, fan3_input
- * and temp1_input so GNOME Vitals, lm-sensors and other tools can see
- * the fans.
+ * This driver registers hwmon sensors fan1_input, fan2_input and
+ * temp1_input so GNOME Vitals, lm-sensors and other tools can see
+ * the fans (this chassis has exactly two fans).
  */
 
 #include <linux/module.h>
@@ -39,7 +39,6 @@
 #define REG_TMP  0x07
 #define REG_RPM1 0xD0
 #define REG_RPM2 0xD2
-#define REG_RPM3 0xE0
 
 /*
  * EC fan fields are tachometer COUNTS, not RPM. Clevo firmware converts:
@@ -95,9 +94,6 @@ static int ecfan_read(struct device *dev, enum hwmon_sensor_types type,
 		case 1:
 			*val = ecfan_rpm(REG_RPM2);
 			break;
-		case 2:
-			*val = ecfan_rpm(REG_RPM3);
-			break;
 		default:
 			return -EOPNOTSUPP;
 		}
@@ -118,7 +114,7 @@ static umode_t ecfan_is_visible(const void *drvdata,
 {
 	switch (type) {
 	case hwmon_fan:
-		if (attr == hwmon_fan_input && channel >= 0 && channel <= 2)
+		if (attr == hwmon_fan_input && channel >= 0 && channel <= 1)
 			return 0444;
 		break;
 	case hwmon_temp:
@@ -133,7 +129,6 @@ static umode_t ecfan_is_visible(const void *drvdata,
 
 static const struct hwmon_channel_info *const ecfan_info[] = {
 	HWMON_CHANNEL_INFO(fan,
-			   HWMON_F_INPUT,
 			   HWMON_F_INPUT,
 			   HWMON_F_INPUT),
 	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT),

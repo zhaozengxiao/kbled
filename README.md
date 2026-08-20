@@ -136,7 +136,6 @@ gnome-system-monitor 等所有工具都能直接读到。
 |---|---|---|---|
 | fan1_input | RPM1 | 0xD0 (16bit) | 风扇1 转速 |
 | fan2_input | RPM2 | 0xD2 (16bit) | 风扇2 转速 |
-| fan3_input | RPM3 | 0xE0 (16bit) | 风扇3（NH5x 无，恒 0） |
 | temp1_input | TMP | 0x07 | EC 温度 |
 
 DSDT 中还有占空比字段：DUT1=0xCE、DUT2=0xCF（PWM 原始值 0–255，≈值/255×100%）。
