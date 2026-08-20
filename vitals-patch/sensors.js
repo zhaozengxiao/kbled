@@ -134,7 +134,7 @@ export const Sensors = GObject.registerClass({
 
         for (let sensor in this._sensorIcons) {
             if (this._settings.get_boolean('show-' + sensor)) {
-                if (sensor == 'temperature' || sensor == 'voltage' || sensor == 'fan') {
+                if (sensor == 'temperature' || sensor == 'voltage' || sensor == 'fan' || sensor == 'power') {
                     // for temp, volt, fan, we have a shared handler
                     this._queryTempVoltFan(callback, sensor);
                 } else {

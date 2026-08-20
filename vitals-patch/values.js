@@ -282,7 +282,7 @@ export const Values = GObject.registerClass({
         this._history[historyType][key] = [legible.text, value];
 
         // process average, min and max values
-        if (type == 'temperature' || type == 'voltage' || type == 'fan') {
+        if (type == 'temperature' || type == 'voltage' || type == 'fan' || type == 'power') {
             let vals = Object.values(this._history[type]).map(x => parseFloat(x[1]));
 
             // show value in group even if there is one value present

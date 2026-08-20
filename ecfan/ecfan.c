@@ -65,6 +65,7 @@ static u64 rapl_last_energy;
 static unsigned long rapl_last_jiffies;
 static int rapl_esu = 15;	/* energy unit exponent: 1/2^ESU joule */
 static bool rapl_ok;
+static long rapl_last_power;
 
 static void rapl_init(void)
 {
@@ -78,6 +79,8 @@ static void rapl_init(void)
 /*
  * Read whole-platform power in microwatts. Energy counter is 32-bit;
  * wraps around at 2^32 counts, handled by unsigned subtraction.
+ * When the sampling window is too short (multiple readers), return the
+ * last computed value instead of underestimating with a clamped window.
  */
 static int ecfan_power_read(long *val)
 {
@@ -105,10 +108,13 @@ static int ecfan_power_read(long *val)
 	rapl_last_jiffies = now;
 	mutex_unlock(&rapl_lock);
 
-	if (dt_ms < 250)
-		dt_ms = 250;	/* minimum sampling window */
-	*val = (long)((u64)de * 1000000000ULL /
-		      (((u64)1 << rapl_esu) * dt_ms));
+	if (dt_ms < 250) {
+		*val = rapl_last_power;	/* window too short; reuse last value */
+		return 0;
+	}
+	rapl_last_power = (long)((u64)de * 1000000000ULL /
+				 (((u64)1 << rapl_esu) * dt_ms));
+	*val = rapl_last_power;
 	return 0;
 }
 
