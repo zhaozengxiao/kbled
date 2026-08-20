@@ -158,6 +158,11 @@ echo ecfan | sudo tee /etc/modules-load.d/ecfan.conf   # 开机自启
 ```
 
 验证：`sensors` 应出现 `ecfan-isa-ecfa` 芯片，或 `ls /sys/class/hwmon/hwmon*/fan*_input`。
+⚠️ 读数应为**几千转**（空闲约 2000+、负载 4000+）。若 Vitals 显示几百，
+说明加载的是未换算的旧模块——执行完整重建：
+`sudo dkms remove -m ecfan -v 1.0 --all && sudo dkms add -m ecfan -v 1.0 &&
+sudo dkms build -m ecfan -v 1.0 && sudo dkms install -m ecfan -v 1.0 &&
+sudo rmmod ecfan && sudo modprobe ecfan`（不要吞掉 build/install 输出，确认无报错）。
 卸载：`sudo dkms remove -m ecfan -v 1.0 --all && sudo rm -rf /usr/src/ecfan-1.0`。
 
 ## 常见问题
