@@ -177,7 +177,7 @@
                             <property name="margin-bottom">4</property>
                             <child>
                               <object class="GtkImage" id="sidebar-icon-power">
-                                <property name="icon-name">battery-symbolic</property>
+                                <property name="icon-name">battery-level-100-charging-symbolic</property>
                                 <property name="pixel-size">16</property>
                               </object>
                             </child>
@@ -669,7 +669,7 @@
   <object class="AdwPreferencesPage" id="power-page">
     <property name="name">power</property>
     <property name="title" translatable="yes">Power</property>
-    <property name="icon-name">battery-symbolic</property>
+    <property name="icon-name">battery-level-100-charging-symbolic</property>
     <child>
       <object class="AdwPreferencesGroup">
         <property name="margin-start">10</property>
